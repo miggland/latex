@@ -15,7 +15,7 @@ from .exc import LatexBuildError
 class LatexBuilder(object):
     """Base class for Latex builders."""
 
-    def build_pdf(self, source, texinputs=[]):
+    def build_pdf(self, source, texinputs=[], jobname=None):
         """Generates a PDF from LaTeX a source.
 
         If there are errors generating a ``LatexError`` is raised.
@@ -23,6 +23,7 @@ class LatexBuilder(object):
         :param source: The LaTeX source.
         :param texinputs: Include paths for TeX. An empty string causes the
                           default path to be added (see the tex manpage).
+        :param jobname: Send a job name as a parameter
         :returns: A :class:`~data.Data` instance containing the generated PDF.
         """
         raise NotImplementedError
@@ -67,15 +68,19 @@ class LatexMkBuilder(LatexBuilder):
         self.variant = variant
 
     @data('source')
-    def build_pdf(self, source, texinputs=[]):
+    def build_pdf(self, source, texinputs=[], jobname=None):
         with TempDir() as tmpdir,\
                 source.temp_saved(suffix='.latex', dir=tmpdir) as tmp:
 
             # close temp file, so other processes can access it also on Windows
             tmp.close()
 
-            base_fn = os.path.splitext(tmp.name)[0]
-            output_fn = base_fn + '.pdf'
+            if jobname is None:
+                base_fn = os.path.splitext(tmp.name)[0]
+            else:
+                base_fn = jobname
+
+            output_fn = os.path.abspath(tmpdir + "/" + base_fn + '.pdf')
 
             latex_cmd = [shlex_quote(self.pdflatex),
                          '-interaction=batchmode',
@@ -89,10 +94,12 @@ class LatexMkBuilder(LatexBuilder):
                 args = [self.latexmk,
                         '-pdf',
                         '-pdflatex={}'.format(' '.join(latex_cmd)),
+                        '-jobname={}'.format(jobname) if jobname is not None else '',
                         tmp.name, ]
             elif self.variant == 'xelatex':
                 args = [self.latexmk,
                         '-xelatex',
+                        '-jobname={}'.format(jobname) if jobname is not None else '',
                         tmp.name, ]
             else:
                 raise ValueError('Invalid LaTeX variant: {}'.format(
@@ -111,6 +118,8 @@ class LatexMkBuilder(LatexBuilder):
                                       stderr=open(os.devnull, 'w'), )
             except CalledProcessError as e:
                 raise_from(LatexBuildError(base_fn + '.log'), e)
+
+            print(os.listdir(tmpdir))
 
             return I(open(output_fn, 'rb').read(), encoding=None)
 
